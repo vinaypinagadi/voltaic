@@ -147,32 +147,41 @@ export const FanView: React.FC<FanViewProps> = ({ token, user, highContrast, onL
       </section>
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem' }} role="tablist">
+      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem' }} role="tablist" aria-label="Fan navigation tabs">
         <button 
+          id="chat-tab-button"
           role="tab"
           aria-selected={activeTab === 'chat'}
+          aria-controls="chat-tab-panel"
           className={`btn ${activeTab === 'chat' ? 'btn-primary' : 'btn-secondary'}`}
           onClick={() => setActiveTab('chat')}
           style={{ flex: 1, gap: '6px' }}
         >
-          <MessageSquare size={16} />
+          <MessageSquare size={16} aria-hidden="true" />
           <span>Fan Chat Assistant</span>
         </button>
         <button 
+          id="map-tab-button"
           role="tab"
           aria-selected={activeTab === 'map'}
+          aria-controls="map-tab-panel"
           className={`btn ${activeTab === 'map' ? 'btn-primary' : 'btn-secondary'}`}
           onClick={() => setActiveTab('map')}
           style={{ flex: 1, gap: '6px' }}
         >
-          <Compass size={16} />
+          <Compass size={16} aria-hidden="true" />
           <span>Stadium Navigation</span>
         </button>
       </div>
 
       {/* TAB A: Chat */}
       {activeTab === 'chat' && (
-        <section className="card chat-container" aria-label="Voltaic AI Chatbot">
+        <section 
+          id="chat-tab-panel"
+          role="tabpanel"
+          aria-labelledby="chat-tab-button"
+          className="card chat-container"
+        >
           <div className="chat-history" role="log">
             {messages.map((msg, idx) => (
               <div 
@@ -203,13 +212,14 @@ export const FanView: React.FC<FanViewProps> = ({ token, user, highContrast, onL
           </div>
 
           <form onSubmit={handleSendMessage} className="chat-input-bar">
+            <label htmlFor="chat-input-field" className="visually-hidden">Ask stadium assistant a question</label>
             <input 
+              id="chat-input-field"
               type="text" 
               className="chat-input"
               value={input}
               onChange={e => setInput(e.target.value)}
               placeholder="Ask: 'Where is section 102?' or type 'medical emergency'"
-              aria-label="Ask stadium assistant a question"
               disabled={loading}
             />
             <button 
@@ -227,7 +237,12 @@ export const FanView: React.FC<FanViewProps> = ({ token, user, highContrast, onL
 
       {/* TAB B: Wayfinding Map */}
       {activeTab === 'map' && (
-        <section className="card fade-in">
+        <section 
+          id="map-tab-panel"
+          role="tabpanel"
+          aria-labelledby="map-tab-button"
+          className="card fade-in"
+        >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
             <h2 style={{ fontSize: '1.1rem', fontWeight: 600 }}>Congestion-Aware Wayfinding</h2>
             <button onClick={onLogout} className="btn btn-secondary" style={{ padding: '4px 10px', fontSize: '0.75rem', height: 'auto' }}>

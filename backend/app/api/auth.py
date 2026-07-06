@@ -1,14 +1,17 @@
+import logging
+import asyncio
+import uuid
+from datetime import datetime, timedelta
+from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 from jose import jwt
-from datetime import datetime, timedelta
-from typing import List, Optional
-import uuid
 
 from app.core.config import settings
 from app.core.supabase_client import supabase
 from app.core.memory_db import profiles, tickets
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 class LoginRequest(BaseModel):
@@ -16,7 +19,7 @@ class LoginRequest(BaseModel):
     username: str
 
 @router.post("/mock-login")
-async def mock_login(request: LoginRequest):
+async def mock_login(request: LoginRequest) -> Dict[str, Any]:
     """
     Signs a standard HS256 JWT token representing a user with the requested role.
     This token is validated by the FastAPI JWT parser and can be used to query Supabase directly.
@@ -28,23 +31,23 @@ async def mock_login(request: LoginRequest):
         )
 
     # 1. Establish deterministic UUIDs for mock profiles
-    mock_uuids = {
+    mock_uuids: Dict[str, str] = {
         "fan": "11111111-1111-1111-1111-111111111111",
         "staff": "22222222-2222-2222-2222-222222222222",
         "admin": "33333333-3333-3333-3333-333333333333"
     }
     
-    user_id = mock_uuids.get(request.role, str(uuid.uuid4()))
-    email = f"{request.username.lower()}@{request.role}.worldcup.org"
-    full_name = request.username.title()
-    languages = ["en", "es"] if request.role == "staff" else ["en"]
+    user_id: str = mock_uuids.get(request.role, str(uuid.uuid4()))
+    email: str = f"{request.username.lower()}@{request.role}.worldcup.org"
+    full_name: str = request.username.title()
+    languages: List[str] = ["en", "es"] if request.role == "staff" else ["en"]
     
     # Coordinates inside stadium (Gate C proximity for staff)
-    latitude = 25.9576 if request.role == "staff" else None
-    longitude = -80.2376 if request.role == "staff" else None
+    latitude: Optional[float] = 25.9576 if request.role == "staff" else None
+    longitude: Optional[float] = -80.2376 if request.role == "staff" else None
 
     # 2. Build standard JWT payload matching Supabase structure
-    payload = {
+    payload: Dict[str, Any] = {
         "iss": "supabase",
         "sub": user_id,
         "aud": "authenticated",
@@ -65,7 +68,7 @@ async def mock_login(request: LoginRequest):
         }
     }
 
-    token = jwt.encode(payload, settings.SUPABASE_JWT_SECRET, algorithm="HS256")
+    token: str = jwt.encode(payload, settings.SUPABASE_JWT_SECRET, algorithm="HS256")
 
     # 3. Seed the user profile in memory DB
     profiles[user_id] = {
@@ -90,21 +93,25 @@ async def mock_login(request: LoginRequest):
 
     # 4. Attempt to seed the local Supabase container (optional)
     try:
-        supabase.table("profiles").upsert({
-            "id": user_id,
-            "email": email,
-            "role": request.role,
-            "full_name": full_name,
-            "languages": languages,
-            "latitude": latitude,
-            "longitude": longitude,
-            "is_available": True
-        }).execute()
+        await asyncio.to_thread(
+            lambda: supabase.table("profiles").upsert({
+                "id": user_id,
+                "email": email,
+                "role": request.role,
+                "full_name": full_name,
+                "languages": languages,
+                "latitude": latitude,
+                "longitude": longitude,
+                "is_available": True
+            }).execute()
+        )
 
         if request.role == "fan":
-            supabase.table("tickets").upsert(tickets[user_id], on_conflict="user_id").execute()
+            await asyncio.to_thread(
+                lambda: supabase.table("tickets").upsert(tickets[user_id], on_conflict="user_id").execute()
+            )
     except Exception as e:
-        print(f"Bypassed profile auto-upsert (likely due to Supabase container offline): {e}")
+        logger.error(f"Bypassed profile auto-upsert (likely due to Supabase container offline): {e}")
 
     return {
         "access_token": token,
@@ -132,22 +139,24 @@ class AuthLoginRequest(BaseModel):
     password: str
 
 @router.post("/signup")
-async def signup(request: SignupRequest):
+async def signup(request: SignupRequest) -> Dict[str, Any]:
     try:
-        res = supabase.auth.sign_up({
-            "email": request.email,
-            "password": request.password,
-            "options": {
-                "data": {
-                    "role": request.role,
-                    "full_name": request.full_name,
-                    "languages": request.languages,
-                    "latitude": request.latitude,
-                    "longitude": request.longitude,
-                    "is_available": True
+        res = await asyncio.to_thread(
+            lambda: supabase.auth.sign_up({
+                "email": request.email,
+                "password": request.password,
+                "options": {
+                    "data": {
+                        "role": request.role,
+                        "full_name": request.full_name,
+                        "languages": request.languages,
+                        "latitude": request.latitude,
+                        "longitude": request.longitude,
+                        "is_available": True
+                    }
                 }
-            }
-        })
+            })
+        )
         
         if not res.user:
             raise HTTPException(
@@ -155,7 +164,7 @@ async def signup(request: SignupRequest):
                 detail="Signup failed. No user object returned."
             )
             
-        user_id = str(res.user.id)
+        user_id: str = str(res.user.id)
         profiles[user_id] = {
             "id": user_id,
             "email": request.email,
@@ -177,9 +186,11 @@ async def signup(request: SignupRequest):
                 "gate": "Gate C"
             }
             try:
-                supabase.table("tickets").upsert(tickets[user_id], on_conflict="user_id").execute()
+                await asyncio.to_thread(
+                    lambda: supabase.table("tickets").upsert(tickets[user_id], on_conflict="user_id").execute()
+                )
             except Exception as e:
-                print(f"Failed to upsert ticket to Supabase in signup: {e}")
+                logger.error(f"Failed to upsert ticket to Supabase in signup: {e}")
                 
         return {
             "status": "success",
@@ -197,12 +208,14 @@ async def signup(request: SignupRequest):
         )
 
 @router.post("/login")
-async def login(request: AuthLoginRequest):
+async def login(request: AuthLoginRequest) -> Dict[str, Any]:
     try:
-        res = supabase.auth.sign_in_with_password({
-            "email": request.email,
-            "password": request.password
-        })
+        res = await asyncio.to_thread(
+            lambda: supabase.auth.sign_in_with_password({
+                "email": request.email,
+                "password": request.password
+            })
+        )
         
         if not res.session:
             raise HTTPException(
@@ -211,10 +224,10 @@ async def login(request: AuthLoginRequest):
             )
             
         user = res.user
-        user_metadata = user.user_metadata or {}
-        role = user_metadata.get("role", "fan")
+        user_metadata: Dict[str, Any] = user.user_metadata or {}
+        role: str = user_metadata.get("role", "fan")
         
-        user_id = str(user.id)
+        user_id: str = str(user.id)
         if user_id not in profiles:
             profiles[user_id] = {
                 "id": user_id,

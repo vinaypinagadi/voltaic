@@ -1,23 +1,29 @@
+import logging
+import asyncio
+from typing import Dict, Any, Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
+
 from app.core.config import settings
 from app.core.supabase_client import supabase
 
+logger = logging.getLogger(__name__)
 security = HTTPBearer()
 
-def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
-    token = credentials.credentials
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> Dict[str, Any]:
+    token: str = credentials.credentials
     
     # 1. Attempt to verify JWT token against live Supabase Auth API
     # Skip if we are running in unit tests with a mocked Supabase client
     if type(supabase.auth).__name__ != "MagicMock":
         try:
-            response = supabase.auth.get_user(token)
+            # Run blocking Supabase Auth API call in a thread pool
+            response = await asyncio.to_thread(lambda: supabase.auth.get_user(token))
             if response and response.user:
                 user = response.user
-                user_metadata = user.user_metadata or {}
-                role = user_metadata.get("role") or "fan"
+                user_metadata: Dict[str, Any] = user.user_metadata or {}
+                role: str = user_metadata.get("role") or "fan"
                 return {
                     "id": str(user.id),
                     "email": user.email,
@@ -26,7 +32,7 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
                     "languages": user_metadata.get("languages", [])
                 }
         except Exception as e:
-            print(f"Supabase Auth get_user failed, falling back to local JWT decode: {e}")
+            logger.warning(f"Supabase Auth get_user failed, falling back to local JWT decode: {e}")
 
     # 2. Fallback to local JWT decode (standard mock/test flow)
     try:
@@ -38,7 +44,7 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
             options={"verify_aud": False}  # Supabase aud is usually 'authenticated'
         )
         
-        user_id = payload.get("sub")
+        user_id: Optional[str] = payload.get("sub")
         if not user_id:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -46,9 +52,9 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
             )
             
         # Extract role from app_metadata or user_metadata
-        app_metadata = payload.get("app_metadata", {})
-        user_metadata = payload.get("user_metadata", {})
-        role = app_metadata.get("role") or user_metadata.get("role") or "fan"
+        app_metadata: Dict[str, Any] = payload.get("app_metadata", {})
+        user_metadata: Dict[str, Any] = payload.get("user_metadata", {})
+        role: str = app_metadata.get("role") or user_metadata.get("role") or "fan"
         
         return {
             "id": user_id,
@@ -63,7 +69,7 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
             detail=f"Invalid authentication credentials: {str(e)}"
         )
 
-def require_staff_or_admin(user: dict = Depends(get_current_user)):
+def require_staff_or_admin(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     if user["role"] not in ["staff", "admin"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

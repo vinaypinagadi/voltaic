@@ -1,6 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api import chat, telemetry, dispatch, auth
+from app.core.logging_config import setup_logging
+
+setup_logging()
 
 app = FastAPI(
     title="Voltaic.AI API",

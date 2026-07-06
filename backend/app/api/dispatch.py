@@ -1,13 +1,16 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+import logging
+import asyncio
 import math
 import re
-from datetime import datetime
+from typing import List, Dict, Any, Tuple
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 
 from app.core.security import require_staff_or_admin
 from app.core.supabase_client import supabase
 from app.core import memory_db
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 class DispatchPayload(BaseModel):
@@ -15,7 +18,7 @@ class DispatchPayload(BaseModel):
     staff_id: str
 
 # Coordinates for Hard Rock Stadium, Miami (FIFA 2026 Venue)
-LOCATION_COORDINATES = {
+LOCATION_COORDINATES: Dict[str, Tuple[float, float]] = {
     "gate a": (25.9585, -80.2395),
     "gate b": (25.9592, -80.2380),
     "gate c": (25.9575, -80.2375),
@@ -26,7 +29,7 @@ LOCATION_COORDINATES = {
     "unknown location": (25.9580, -80.2389)
 }
 
-def get_location_coordinates(location_str: str) -> tuple[float, float]:
+def get_location_coordinates(location_str: str) -> Tuple[float, float]:
     loc_lower = location_str.lower()
     for name, coords in LOCATION_COORDINATES.items():
         if name in loc_lower:
@@ -66,20 +69,22 @@ def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
     return R * c
 
 @router.get("/alerts")
-async def list_alerts(user: dict = Depends(require_staff_or_admin)):
+async def list_alerts(user: Dict[str, Any] = Depends(require_staff_or_admin)) -> List[Dict[str, Any]]:
     """
     Returns all active alerts. Merges Supabase results with memory fallbacks.
     """
-    db_alerts = []
+    db_alerts: List[Dict[str, Any]] = []
     try:
-        res = supabase.table("staff_alerts").select("*").order("created_at", desc=True).execute()
+        res = await asyncio.to_thread(
+            lambda: supabase.table("staff_alerts").select("*").order("created_at", desc=True).execute()
+        )
         if res.data:
             db_alerts = res.data
     except Exception as e:
-        print(f"Supabase offline. Returning memory alerts: {e}")
+        logger.error(f"Supabase offline. Returning memory alerts: {e}")
 
     # Merge alerts by matching ID
-    alert_map = {a["id"]: a for a in memory_db.staff_alerts}
+    alert_map: Dict[str, Dict[str, Any]] = {a["id"]: a for a in memory_db.staff_alerts}
     for da in db_alerts:
         alert_map[da["id"]] = da
 
@@ -89,7 +94,7 @@ async def list_alerts(user: dict = Depends(require_staff_or_admin)):
     return merged
 
 @router.post("/assign")
-async def assign_dispatch(payload: DispatchPayload, user: dict = Depends(require_staff_or_admin)):
+async def assign_dispatch(payload: DispatchPayload, user: Dict[str, Any] = Depends(require_staff_or_admin)) -> Dict[str, Any]:
     """
     Assigns a volunteer/staff to an incident.
     """
@@ -102,15 +107,17 @@ async def assign_dispatch(payload: DispatchPayload, user: dict = Depends(require
             updated = True
             break
             
-    # 2. Update Supabase DB
+    # 2. Update Supabase DB in thread pool
     try:
-        supabase.table("staff_alerts").update({
-            "status": "dispatched",
-            "assigned_staff_id": payload.staff_id
-        }).eq("id", payload.alert_id).execute()
+        await asyncio.to_thread(
+            lambda: supabase.table("staff_alerts").update({
+                "status": "dispatched",
+                "assigned_staff_id": payload.staff_id
+            }).eq("id", payload.alert_id).execute()
+        )
         updated = True
     except Exception as e:
-        print(f"Supabase offline. Dispatched alert stored in memory only: {e}")
+        logger.error(f"Supabase offline. Dispatched alert stored in memory only: {e}")
 
     if not updated:
         raise HTTPException(status_code=404, detail="Alert not found.")
@@ -118,18 +125,20 @@ async def assign_dispatch(payload: DispatchPayload, user: dict = Depends(require
     return {"status": "success", "message": f"Volunteer {payload.staff_id} successfully dispatched to alert {payload.alert_id}."}
 
 @router.get("/suggestions/{alert_id}")
-async def get_dispatch_suggestions(alert_id: str, user: dict = Depends(require_staff_or_admin)):
+async def get_dispatch_suggestions(alert_id: str, user: Dict[str, Any] = Depends(require_staff_or_admin)) -> Dict[str, Any]:
     """
-    Analyzes an alert and recommends available staff/volunteers.
+    Tags an alert and recommends available staff/volunteers.
     Ranks by Haversine distance and language capabilities.
     """
-    alert = None
+    alert: Optional[Dict[str, Any]] = None
     try:
-        alert_res = supabase.table("staff_alerts").select("*").eq("id", alert_id).execute()
+        alert_res = await asyncio.to_thread(
+            lambda: supabase.table("staff_alerts").select("*").eq("id", alert_id).execute()
+        )
         if alert_res.data:
             alert = alert_res.data[0]
     except Exception as e:
-        print(f"Supabase offline. Checking memory: {e}")
+        logger.error(f"Supabase offline. Checking memory: {e}")
 
     if not alert:
         for a in memory_db.staff_alerts:
@@ -146,18 +155,20 @@ async def get_dispatch_suggestions(alert_id: str, user: dict = Depends(require_s
     incident_coords = get_location_coordinates(alert.get("location", ""))
     incident_lang = detect_incident_language(alert.get("description", "") + " " + alert.get("title", ""))
 
-    staff_list = []
+    staff_list: List[Dict[str, Any]] = []
     try:
-        staff_res = supabase.table("profiles").select("*").eq("role", "staff").eq("is_available", True).execute()
+        staff_res = await asyncio.to_thread(
+            lambda: supabase.table("profiles").select("*").eq("role", "staff").eq("is_available", True).execute()
+        )
         if staff_res.data:
             staff_list = staff_res.data
     except Exception as e:
-        print(f"Supabase offline. Checking memory for staff: {e}")
+        logger.error(f"Supabase offline. Checking memory for staff: {e}")
 
     if not staff_list:
         staff_list = [p for p in memory_db.profiles.values() if p.get("role") == "staff" and p.get("is_available", True)]
 
-    suggestions = []
+    suggestions: List[Dict[str, Any]] = []
     for staff in staff_list:
         lat = staff.get("latitude")
         lon = staff.get("longitude")

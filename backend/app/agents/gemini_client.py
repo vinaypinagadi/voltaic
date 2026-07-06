@@ -1,75 +1,93 @@
+import logging
+import asyncio
+from typing import List, Dict, Optional, Any, AsyncGenerator
 import google.generativeai as genai
 from app.core.config import settings
 from app.core.supabase_client import supabase
 
+logger = logging.getLogger(__name__)
+
 class GeminiAgent:
-    def __init__(self):
+    def __init__(self) -> None:
         if settings.GEMINI_API_KEY:
             genai.configure(api_key=settings.GEMINI_API_KEY)
-        self.embed_model = "models/text-embedding-004"
-        self.chat_model = "gemini-1.5-flash"
+        self.embed_model: str = "models/text-embedding-004"
+        self.chat_model: str = "gemini-1.5-flash"
 
-    def get_embedding(self, text: str) -> list[float]:
+    async def get_embedding(self, text: str) -> List[float]:
         """
-        Generates 768-dimension embedding for stadium search.
+        Generates 768-dimension embedding for stadium search asynchronously.
         """
         if not settings.GEMINI_API_KEY:
-            # Return mock embedding for tests
             return [0.0] * 768
         try:
-            response = genai.embed_content(
+            # Run the embed API call asynchronously
+            response = await genai.embed_content_async(
                 model=self.embed_model,
                 contents=text
             )
-            return response["embedding"]
+            embedding: List[float] = response["embedding"]
+            return embedding
         except Exception as e:
-            print(f"Error generating embedding: {e}")
+            logger.error(f"Error generating embedding: {e}")
             return [0.0] * 768
 
-    def retrieve_context(self, query: str, limit: int = 3) -> str:
+    async def retrieve_context(self, query: str, limit: int = 3) -> str:
         """
         Queries Supabase vector store for matching stadium rules/maps.
         """
         try:
-            embedding = self.get_embedding(query)
-            res = supabase.rpc(
-                "match_stadium_knowledge",
-                {
-                    "query_embedding": embedding,
-                    "match_threshold": 0.1,  # Lower threshold to capture relevant details
-                    "match_count": limit
-                }
-            ).execute()
+            embedding = await self.get_embedding(query)
+            
+            # Supabase API call is blocking; run in a separate thread to keep event loop free
+            res = await asyncio.to_thread(
+                lambda: supabase.rpc(
+                    "match_stadium_knowledge",
+                    {
+                        "query_embedding": embedding,
+                        "match_threshold": 0.1,  # Lower threshold to capture relevant details
+                        "match_count": limit
+                    }
+                ).execute()
+            )
             
             if not res.data:
                 return "No relevant stadium rules or layout maps found in database."
                 
-            chunks = []
+            chunks: List[str] = []
             for item in res.data:
                 chunks.append(f"Source: {item.get('metadata', {})}\nContent: {item.get('content', '')}")
             return "\n\n---\n\n".join(chunks)
         except Exception as e:
-            print(f"Error in vector RAG lookup: {e}")
+            logger.error(f"Error in vector RAG lookup: {e}")
             return "Unable to access vector database for stadium rules."
 
-    def generate_chat_stream(self, message: str, user_id: str, history: list[dict] = None):
+    async def generate_chat_stream(
+        self, 
+        message: str, 
+        user_id: str, 
+        history: Optional[List[Dict[str, Any]]] = None
+    ) -> AsyncGenerator[str, None]:
         """
-        Streams answers from Gemini with context-aware prompts.
+        Streams answers from Gemini with context-aware prompts asynchronously.
         """
         if history is None:
             history = []
 
         # 1. Fetch user's ticket info if available
-        ticket_info = "No registered ticket found."
+        ticket_info: str = "No registered ticket found."
         from app.core.memory_db import tickets
-        t = tickets.get(user_id)
+        t: Optional[Dict[str, Any]] = tickets.get(user_id)
         
         try:
-            ticket_res = supabase.table("tickets").select("*").eq("user_id", user_id).execute()
+            # Run Supabase query in thread pool
+            ticket_res = await asyncio.to_thread(
+                lambda: supabase.table("tickets").select("*").eq("user_id", user_id).execute()
+            )
             if ticket_res.data:
                 t = ticket_res.data[0]
         except Exception as e:
-            print(f"Error fetching tickets from Supabase: {e}")
+            logger.error(f"Error fetching tickets from Supabase: {e}")
 
         if t:
             ticket_info = (
@@ -79,10 +97,10 @@ class GeminiAgent:
             )
 
         # 2. Retrieve RAG context
-        context = self.retrieve_context(message)
+        context = await self.retrieve_context(message)
 
         # 3. Create systemic prompt prioritizing localized accessibility wayfinding
-        system_instruction = (
+        system_instruction: str = (
             "You are Voltaic.AI, the official Generative AI Stadium Assistant for the FIFA World Cup 2026.\n"
             "You help fans find seat locations, navigate gates, learn schedules, and find stadium rules.\n\n"
             "CRITICAL DIRECTIVES:\n"
@@ -96,7 +114,7 @@ class GeminiAgent:
         )
 
         # 4. Construct content list for Gemini chat API
-        contents = []
+        contents: List[Dict[str, Any]] = []
         for turn in history:
             role = "user" if turn.get("role") == "user" else "model"
             contents.append({
@@ -118,13 +136,14 @@ class GeminiAgent:
                 model_name=self.chat_model,
                 system_instruction=system_instruction
             )
-            response = model.generate_content(
+            # Use async stream generator
+            response = await model.generate_content_async(
                 contents=contents,
                 stream=True
             )
-            for chunk in response:
+            async for chunk in response:
                 if chunk.text:
                     yield chunk.text
         except Exception as e:
-            print(f"Gemini generation error: {e}")
+            logger.error(f"Gemini generation error: {e}")
             yield f"Error: Failed to generate streaming answer. Details: {str(e)}"

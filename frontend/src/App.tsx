@@ -213,9 +213,17 @@ export const App: React.FC = () => {
             </p>
             
             {/* Tab Toggles */}
-            <div style={{ display: 'flex', borderBottom: '1px solid var(--glass-border)', marginBottom: '1.25rem' }}>
+            <div 
+              style={{ display: 'flex', borderBottom: '1px solid var(--glass-border)', marginBottom: '1.25rem' }} 
+              role="tablist" 
+              aria-label="Authentication Actions"
+            >
               <button
+                id="signin-tab-button"
                 type="button"
+                role="tab"
+                aria-selected={!isSignUp}
+                aria-controls="auth-form-panel"
                 onClick={() => { setIsSignUp(false); setAuthError(''); }}
                 style={{
                   flex: 1,
@@ -232,7 +240,11 @@ export const App: React.FC = () => {
                 Sign In
               </button>
               <button
+                id="signup-tab-button"
                 type="button"
+                role="tab"
+                aria-selected={isSignUp}
+                aria-controls="auth-form-panel"
                 onClick={() => { setIsSignUp(true); setAuthError(''); }}
                 style={{
                   flex: 1,
@@ -250,7 +262,13 @@ export const App: React.FC = () => {
               </button>
             </div>
             
-            <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '1.15rem' }}>
+            <form 
+              id="auth-form-panel"
+              role="tabpanel"
+              aria-labelledby={isSignUp ? "signup-tab-button" : "signin-tab-button"}
+              onSubmit={handleLogin} 
+              style={{ display: 'flex', flexDirection: 'column', gap: '1.15rem' }}
+            >
               <div>
                 <label htmlFor="email-input" style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '6px', fontWeight: 500 }}>Email Address</label>
                 <input 
