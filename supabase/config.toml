@@ -1,0 +1,31 @@
+[api]
+port = 54300
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+
+[studio]
+port = 54323
+
+[auth]
+port = 9999
+site_url = "http://localhost:5173"
+additional_redirect_urls = ["http://localhost:5173/*"]
+jwt_expiry = 3600
+enable_signup = true
+
+[auth.rate_limit]
+email_sent = 1000000000
+sms_sent = 1000000000
+anonymous_users = 1000000000
+token_refresh = 1000000000
+sign_in_sign_ups = 1000000000
+token_verifications = 1000000000
+
+[realtime]
+enabled = true
+port = 54315
