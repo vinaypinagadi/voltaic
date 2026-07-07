@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Shared in-memory state for fallback demo mode when Supabase is offline
 # Ensure the user has a fully interactive experience regardless of DB status.
@@ -55,7 +55,7 @@ staff_alerts = [
         "status": "pending",
         "location": "Gate D",
         "severity": "high",
-        "created_at": datetime.utcnow().isoformat()
+        "created_at": datetime.now(timezone.utc).isoformat()
     },
     {
         "id": "mock-alert-2",
@@ -65,7 +65,7 @@ staff_alerts = [
         "status": "pending",
         "location": "Section 102",
         "severity": "medium",
-        "created_at": datetime.utcnow().isoformat()
+        "created_at": datetime.now(timezone.utc).isoformat()
     }
 ]
 
@@ -76,7 +76,7 @@ def add_telemetry(gate_name: str, entry_rate: float, queue_wait_time: float, cro
         "entry_rate": entry_rate,
         "queue_wait_time": queue_wait_time,
         "crowd_density": crowd_density,
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat()
     }
     stadium_telemetry.append(item)
     return item
@@ -91,7 +91,7 @@ def add_alert(title: str, description: str, category: str, location: str, severi
         "location": location,
         "assigned_staff_id": None,
         "severity": severity,
-        "created_at": datetime.utcnow().isoformat()
+        "created_at": datetime.now(timezone.utc).isoformat()
     }
     staff_alerts.insert(0, item)
     return item

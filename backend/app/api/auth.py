@@ -1,7 +1,7 @@
 import logging
 import asyncio
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
@@ -51,8 +51,8 @@ async def mock_login(request: LoginRequest) -> Dict[str, Any]:
         "iss": "supabase",
         "sub": user_id,
         "aud": "authenticated",
-        "exp": int((datetime.utcnow() + timedelta(days=1)).timestamp()),
-        "nbf": int(datetime.utcnow().timestamp()),
+        "exp": int((datetime.now(timezone.utc) + timedelta(days=1)).timestamp()),
+        "nbf": int(datetime.now(timezone.utc).timestamp()),
         "role": "authenticated",
         "email": email,
         "app_metadata": {

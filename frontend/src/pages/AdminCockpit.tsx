@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { createClient } from '@supabase/supabase-js';
+import React, { useState, useEffect, useCallback } from 'react';
+import { createClient, RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 import { 
   AlertOctagon, 
   Activity, 
@@ -16,6 +16,24 @@ import {
 } from 'lucide-react';
 import AriaLiveAlert from '../components/AriaLiveAlert';
 
+export interface Alert {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  status: string;
+  location: string;
+  severity: string;
+  created_at: string;
+}
+
+export interface Suggestion {
+  staff_id: string;
+  full_name: string;
+  distance_meters: number;
+  languages: string[];
+}
+
 interface AdminCockpitProps {
   token: string;
   supabaseUrl: string;
@@ -23,10 +41,10 @@ interface AdminCockpitProps {
   onLogout: () => void;
 }
 
-export const AdminCockpit: React.FC<AdminCockpitProps> = ({ token, supabaseUrl, supabaseAnonKey, onLogout }) => {
-  const [alerts, setAlerts] = useState<any[]>([]);
-  const [selectedAlert, setSelectedAlert] = useState<any | null>(null);
-  const [suggestions, setSuggestions] = useState<any[]>([]);
+export const AdminCockpit: React.FC<AdminCockpitProps> = React.memo(({ token, supabaseUrl, supabaseAnonKey, onLogout }) => {
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [selectedAlert, setSelectedAlert] = useState<Alert | null>(null);
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [suggestLoading, setSuggestLoading] = useState(false);
   const [announcement, setAnnouncement] = useState('');
   
@@ -52,11 +70,14 @@ export const AdminCockpit: React.FC<AdminCockpitProps> = ({ token, supabaseUrl, 
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'staff_alerts' },
-        (payload: any) => {
+        (payload: RealtimePostgresChangesPayload<{ [key: string]: string | number | boolean | null }>) => {
           console.log('Realtime change received:', payload);
           fetchAlerts(); // Refresh logs on any database change
           if (payload.eventType === 'INSERT') {
-            setAnnouncement(`ALERT BROADCAST: ${payload.new.title} reported at ${payload.new.location}`);
+            const newAlert = payload.new as unknown as Alert;
+            if (newAlert) {
+              setAnnouncement(`ALERT BROADCAST: ${newAlert.title} reported at ${newAlert.location}`);
+            }
           }
         }
       )
@@ -65,7 +86,7 @@ export const AdminCockpit: React.FC<AdminCockpitProps> = ({ token, supabaseUrl, 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [supabaseUrl, supabaseAnonKey, token]);
 
   // Fetch suggestions when an alert is selected
   useEffect(() => {
@@ -76,7 +97,7 @@ export const AdminCockpit: React.FC<AdminCockpitProps> = ({ token, supabaseUrl, 
     }
   }, [selectedAlert]);
 
-  const fetchAlerts = async () => {
+  const fetchAlerts = useCallback(async () => {
     try {
       const response = await fetch('http://localhost:8000/api/dispatch/alerts', {
         headers: { 'Authorization': `Bearer ${token}` }
@@ -88,9 +109,9 @@ export const AdminCockpit: React.FC<AdminCockpitProps> = ({ token, supabaseUrl, 
     } catch (err) {
       console.error("Failed to fetch alerts: ", err);
     }
-  };
+  }, [token]);
 
-  const fetchSuggestions = async (alertId: string) => {
+  const fetchSuggestions = useCallback(async (alertId: string) => {
     setSuggestLoading(true);
     try {
       const response = await fetch(`http://localhost:8000/api/dispatch/suggestions/${alertId}`, {
@@ -105,9 +126,9 @@ export const AdminCockpit: React.FC<AdminCockpitProps> = ({ token, supabaseUrl, 
     } finally {
       setSuggestLoading(false);
     }
-  };
+  }, [token]);
 
-  const handlePostTelemetry = async (e: React.FormEvent) => {
+  const handlePostTelemetry = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
     setTelemetryMessage('Ingesting data stream...');
@@ -142,9 +163,9 @@ export const AdminCockpit: React.FC<AdminCockpitProps> = ({ token, supabaseUrl, 
       setIsSubmitting(false);
       setTelemetryMessage('Connection failed. Server offline.');
     }
-  };
+  }, [gateName, entryRate, waitTime, density, fetchAlerts, token]);
 
-  const handleDispatch = async (staffId: string) => {
+  const handleDispatch = useCallback(async (staffId: string) => {
     if (!selectedAlert) return;
     try {
       const response = await fetch('http://localhost:8000/api/dispatch/assign', {
@@ -166,7 +187,7 @@ export const AdminCockpit: React.FC<AdminCockpitProps> = ({ token, supabaseUrl, 
     } catch (err) {
       console.error(err);
     }
-  };
+  }, [selectedAlert, token, fetchAlerts]);
 
   return (
     <main className="fade-in" style={{ padding: '2rem', maxWidth: '1280px', margin: '0 auto', width: '100%' }}>
@@ -297,7 +318,7 @@ export const AdminCockpit: React.FC<AdminCockpitProps> = ({ token, supabaseUrl, 
             </button>
             
             {telemetryMessage && (
-              <div style={{ 
+              <div role="alert" aria-live="assertive" style={{ 
                 padding: '0.85rem', 
                 background: telemetryMessage.includes('🚨') ? 'rgba(239, 68, 68, 0.1)' : 'rgba(6, 182, 212, 0.08)', 
                 border: `1px solid ${telemetryMessage.includes('🚨') ? 'var(--danger)' : 'var(--accent-cyan)'}`, 
@@ -458,5 +479,5 @@ export const AdminCockpit: React.FC<AdminCockpitProps> = ({ token, supabaseUrl, 
       )}
     </main>
   );
-};
+});
 export default AdminCockpit;

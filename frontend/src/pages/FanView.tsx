@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
   Send, 
   Ticket as TicketIcon, 
@@ -19,12 +19,12 @@ interface Message {
 
 interface FanViewProps {
   token: string;
-  user: any;
+  user: { id?: string; full_name?: string; role?: string };
   highContrast: boolean;
   onLogout: () => void;
 }
 
-export const FanView: React.FC<FanViewProps> = ({ token, user, highContrast, onLogout }) => {
+export const FanView: React.FC<FanViewProps> = React.memo(({ token, user, highContrast, onLogout }) => {
   const [messages, setMessages] = useState<Message[]>([
     { role: 'model', content: `Welcome ${user?.full_name || 'Fan'} to the FIFA World Cup 2026. I am Voltaic.AI, your interactive stadium guide. Ask me anything about seat locations, entry gates, schedules, or rules.` }
   ]);
@@ -54,7 +54,7 @@ export const FanView: React.FC<FanViewProps> = ({ token, user, highContrast, onL
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const handleSendMessage = async (e: React.FormEvent) => {
+  const handleSendMessage = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || loading) return;
 
@@ -126,7 +126,7 @@ export const FanView: React.FC<FanViewProps> = ({ token, user, highContrast, onL
     } finally {
       setLoading(false);
     }
-  };
+  }, [input, loading, messages, token]);
 
   return (
     <main className="fade-in" style={{ padding: '1rem', maxWidth: '800px', margin: '0 auto', width: '100%' }}>
@@ -378,5 +378,5 @@ export const FanView: React.FC<FanViewProps> = ({ token, user, highContrast, onL
       )}
     </main>
   );
-};
+});
 export default FanView;

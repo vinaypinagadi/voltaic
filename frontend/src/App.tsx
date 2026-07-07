@@ -1,11 +1,22 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Sparkles, Eye, User, HeartHandshake, ShieldAlert } from 'lucide-react';
 import { FanView } from './pages/FanView';
 import { AdminCockpit } from './pages/AdminCockpit';
 
-export const App: React.FC = () => {
+export interface User {
+  id: string;
+  email: string;
+  role: string;
+  full_name: string;
+  languages?: string[];
+  latitude?: number;
+  longitude?: number;
+  is_available?: boolean;
+}
+
+export const App: React.FC = React.memo(() => {
   const [token, setToken] = useState<string | null>(localStorage.getItem('voltaic_token'));
-  const [user, setUser] = useState<any | null>(JSON.parse(localStorage.getItem('voltaic_user') || 'null'));
+  const [user, setUser] = useState<User | null>(JSON.parse(localStorage.getItem('voltaic_user') || 'null'));
   const [highContrast, setHighContrast] = useState<boolean>(
     localStorage.getItem('high_contrast') === 'true'
   );
@@ -28,7 +39,7 @@ export const App: React.FC = () => {
     localStorage.setItem('high_contrast', highContrast.toString());
   }, [highContrast]);
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleLogin = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthLoading(true);
     setAuthError('');
@@ -81,14 +92,18 @@ export const App: React.FC = () => {
         localStorage.setItem('voltaic_token', data.access_token);
         localStorage.setItem('voltaic_user', JSON.stringify(data.user));
       }
-    } catch (err: any) {
-      setAuthError(err.message || 'Failed to authenticate with backend server.');
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setAuthError(err.message);
+      } else {
+        setAuthError('Failed to authenticate with backend server.');
+      }
     } finally {
       setAuthLoading(false);
     }
-  };
+  }, [isSignUp, email, password, role, username]);
 
-  const handleDemoLogin = async (selectedRole: 'fan' | 'staff' | 'admin') => {
+  const handleDemoLogin = useCallback(async (selectedRole: 'fan' | 'staff' | 'admin') => {
     setAuthLoading(true);
     setAuthError('');
     const demoEmails = {
@@ -149,23 +164,27 @@ export const App: React.FC = () => {
       setUser(data.user);
       localStorage.setItem('voltaic_token', data.access_token);
       localStorage.setItem('voltaic_user', JSON.stringify(data.user));
-    } catch (err: any) {
-      setAuthError(err.message || 'Failed to connect for demo login.');
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setAuthError(err.message);
+      } else {
+        setAuthError('Failed to connect for demo login.');
+      }
     } finally {
       setAuthLoading(false);
     }
-  };
+  }, []);
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     setToken(null);
     setUser(null);
     localStorage.removeItem('voltaic_token');
     localStorage.removeItem('voltaic_user');
-  };
+  }, []);
 
-  const handleRoleSelect = (selectedRole: 'fan' | 'staff' | 'admin') => {
+  const handleRoleSelect = useCallback((selectedRole: 'fan' | 'staff' | 'admin') => {
     setRole(selectedRole);
-  };
+  }, []);
 
   return (
     <div className="app-container">
@@ -379,7 +398,7 @@ export const App: React.FC = () => {
               </button>
 
               {authError && (
-                <div style={{ color: 'var(--danger)', fontSize: '0.85rem', textAlign: 'center', marginTop: '0.5rem' }}>
+                <div role="alert" aria-live="assertive" style={{ color: 'var(--danger)', fontSize: '0.85rem', textAlign: 'center', marginTop: '0.5rem' }}>
                   {authError}
                 </div>
               )}
@@ -434,8 +453,8 @@ export const App: React.FC = () => {
       ) : (
         <AdminCockpit 
           token={token} 
-          supabaseUrl="https://xukqjrntzlvfhhvjfbwm.supabase.co"
-          supabaseAnonKey="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh1a3Fqcm50emx2ZmhodmpmYndtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMzNDg3MDcsImV4cCI6MjA5ODkyNDcwN30.8wzaamfmSYnCPAYc-oIJ98W5rID0r5SVFnKLBCC782g" 
+          supabaseUrl={import.meta.env.VITE_SUPABASE_URL || ""}
+          supabaseAnonKey={import.meta.env.VITE_SUPABASE_ANON_KEY || ""} 
           onLogout={handleLogout} 
         />
       )}
@@ -453,5 +472,5 @@ export const App: React.FC = () => {
       </footer>
     </div>
   );
-};
+});
 export default App;

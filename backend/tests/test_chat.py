@@ -1,22 +1,20 @@
 from fastapi.testclient import TestClient
+from unittest.mock import patch, AsyncMock, MagicMock
 from app.main import app
 
 client = TestClient(app)
 
 def test_chat_streaming_unauthorized():
-    # Call without Authorization header
     response = client.post(
         "/api/chat/stream",
         json={"message": "Hello", "history": []}
     )
-    assert response.status_code == 401  # HTTPBearer returns 401 when header is missing
+    assert response.status_code == 401
 
 def test_chat_streaming_normal():
-    # 1. Sign in to obtain a valid token
     login_res = client.post("/api/auth/mock-login", json={"role": "fan", "username": "Vinay"})
     token = login_res.json()["access_token"]
 
-    # 2. Request chat stream using token
     headers = {"Authorization": f"Bearer {token}"}
     response = client.post(
         "/api/chat/stream",
@@ -26,17 +24,13 @@ def test_chat_streaming_normal():
     assert response.status_code == 200
     assert response.headers["content-type"] == "text/plain; charset=utf-8"
     
-    # Read streamed body
     content = response.text
     assert len(content) > 0
-    assert "[MOCK STREAM]" in content or len(content) > 0
 
 def test_chat_streaming_emergency():
-    # 1. Sign in
     login_res = client.post("/api/auth/mock-login", json={"role": "fan", "username": "Vinay"})
     token = login_res.json()["access_token"]
 
-    # 2. Request chat stream with emergency trigger
     headers = {"Authorization": f"Bearer {token}"}
     response = client.post(
         "/api/chat/stream",
@@ -45,5 +39,37 @@ def test_chat_streaming_emergency():
     )
     assert response.status_code == 200
     content = response.text
-    # Deterministic emergency fallback should activate immediately
     assert "EMERGENCY PROTOCOL TRIGGERED" in content
+
+def test_chat_streaming_emergency_exceptions(mock_supabase):
+    login_res = client.post("/api/auth/mock-login", json={"role": "fan", "username": "Vinay"})
+    token = login_res.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    
+    with patch("app.api.chat.asyncio.to_thread", new_callable=AsyncMock) as mock_thread:
+        mock_thread.side_effect = Exception("DB Error")
+        response = client.post("/api/chat/stream", json={"message": "Help me, medical emergency!", "history": []}, headers=headers)
+        assert response.status_code == 200
+        assert "EMERGENCY PROTOCOL TRIGGERED" in response.text
+
+def test_chat_streaming_normal_exceptions(mock_supabase):
+    login_res = client.post("/api/auth/mock-login", json={"role": "fan", "username": "Vinay"})
+    token = login_res.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    
+    with patch("app.api.chat.asyncio.to_thread", new_callable=AsyncMock) as mock_thread:
+        mock_thread.side_effect = Exception("DB Error")
+        response = client.post("/api/chat/stream", json={"message": "Where is Gate A?", "history": []}, headers=headers)
+        assert response.status_code == 200
+
+def test_chat_streaming_emergency_with_ticket(mock_supabase):
+    login_res = client.post("/api/auth/mock-login", json={"role": "fan", "username": "Vinay"})
+    token = login_res.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    
+    with patch("app.api.chat.asyncio.to_thread", new_callable=AsyncMock) as mock_thread:
+        mock_res = MagicMock()
+        mock_res.data = [{"seat_section": "102", "seat_row": "A", "seat_number": "1", "gate": "A"}]
+        mock_thread.return_value = mock_res
+        response = client.post("/api/chat/stream", json={"message": "Help me, medical emergency!", "history": []}, headers=headers)
+        assert response.status_code == 200
